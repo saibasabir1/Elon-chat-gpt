@@ -114,7 +114,7 @@ export default function Home() {
         {
           role: "ai",
           content:
-            "❌ AI se response nahi aa raha. Check karo ki Ollama running hai.",
+            "❌ AI se response nahi aa raha. Check karo ki Gemini API configured hai\.",
         },
       ]);
     } finally {
@@ -162,7 +162,7 @@ export default function Home() {
             <p className="text-xs text-zinc-500">STATUS</p>
 
             <p className="mt-1 text-sm text-green-400">
-              ● Ollama Online
+              ● Gemini Online
             </p>
           </div>
         </aside>
