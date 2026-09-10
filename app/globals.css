@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #050505;
+  --foreground: #f5f5f5;
 }
 
 @theme inline {
@@ -12,15 +12,139 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: #050505;
 }
 
 body {
-  background: var(--background);
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(
+      circle at 20% 10%,
+      rgba(255, 255, 255, 0.045),
+      transparent 28%
+    ),
+    radial-gradient(
+      circle at 85% 80%,
+      rgba(120, 120, 120, 0.035),
+      transparent 30%
+    ),
+    #050505;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+}
+
+/* Scrollbar */
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+/* Premium glass */
+
+.elon-glass {
+  background: rgba(12, 12, 14, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.elon-border {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Soft glow */
+
+.elon-glow {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.035),
+    0 20px 80px rgba(0, 0, 0, 0.45);
+}
+
+/* Message entrance */
+
+.elon-message {
+  animation: elonMessageIn 0.25s ease-out;
+}
+
+@keyframes elonMessageIn {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Loading dots */
+
+.elon-dot {
+  animation: elonDot 1.2s infinite ease-in-out;
+}
+
+.elon-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.elon-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes elonDot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+/* Mobile safe area */
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  .elon-safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
