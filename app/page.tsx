@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { Capacitor } from "@capacitor/core";
 
 type SpeechRecognitionEventLike = Event & {
   results: SpeechRecognitionResultList;
@@ -25,6 +26,10 @@ type SpeechRecognitionInstance = {
 };
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+
+type NativeSpeechListener = {
+  remove: () => Promise<void>;
+};
 
 declare global {
   interface Window {
@@ -96,6 +101,12 @@ export default function HomePage() {
 
   const speechRecognitionRef =
     useRef<SpeechRecognitionInstance | null>(null);
+
+  const nativePartialListenerRef =
+    useRef<NativeSpeechListener | null>(null);
+
+  const nativeStateListenerRef =
+    useRef<NativeSpeechListener | null>(null);
 
   const [isListening, setIsListening] = useState(false);
   const [voiceOutput, setVoiceOutput] = useState(true);
@@ -187,7 +198,7 @@ export default function HomePage() {
     } catch {
       // Ignore storage errors.
     }
-  }, [voiceLanguage, voiceSpeed, voiceOutput]);
+  }, [voiceLanguage, voiceSpeed, voiceOutput, voiceGender]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -541,18 +552,127 @@ export default function HomePage() {
     }
   }
 
-  function stopListening() {
+  async function clearNativeSpeechListeners() {
+    const listeners = [
+      nativePartialListenerRef.current,
+      nativeStateListenerRef.current,
+    ];
+
+    nativePartialListenerRef.current = null;
+    nativeStateListenerRef.current = null;
+
+    for (const listener of listeners) {
+      if (!listener) continue;
+      try {
+        await listener.remove();
+      } catch {
+        // Listener already removed; ignore.
+      }
+    }
+  }
+
+  async function stopListening() {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const { SpeechRecognition } = await import(
+          "@capacitor-community/speech-recognition"
+        );
+        await SpeechRecognition.stop();
+      } catch (error) {
+        console.error("NATIVE SPEECH STOP ERROR:", error);
+      }
+
+      await clearNativeSpeechListeners();
+      setIsListening(false);
+      return;
+    }
+
     speechRecognitionRef.current?.stop();
     speechRecognitionRef.current = null;
     setIsListening(false);
   }
 
-  function toggleVoiceInput() {
+  async function toggleVoiceInput() {
     if (isListening) {
-      stopListening();
+      await stopListening();
       return;
     }
 
+    // Android APK / Capacitor: use the native speech-recognition plugin.
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const { SpeechRecognition } = await import(
+          "@capacitor-community/speech-recognition"
+        );
+
+        const availability = await SpeechRecognition.available();
+
+        if (!availability.available) {
+          alert(
+            "Is Android device par Speech Recognition available nahi hai."
+          );
+          return;
+        }
+
+        const permissions = await SpeechRecognition.checkPermissions();
+
+        if (permissions.speechRecognition !== "granted") {
+          const requested =
+            await SpeechRecognition.requestPermissions();
+
+          if (requested.speechRecognition !== "granted") {
+            alert(
+              "Microphone permission allow karo, phir dobara mic dabao."
+            );
+            return;
+          }
+        }
+
+        await clearNativeSpeechListeners();
+
+        nativePartialListenerRef.current =
+          await SpeechRecognition.addListener(
+            "partialResults",
+            (data: { matches?: string[] }) => {
+              const transcript = data.matches?.[0]?.trim();
+
+              if (transcript) {
+                setInput(transcript);
+              }
+            }
+          );
+
+        nativeStateListenerRef.current =
+          await SpeechRecognition.addListener(
+            "listeningState",
+            (data: { status?: string }) => {
+              if (data.status?.toLowerCase() === "stopped") {
+                setIsListening(false);
+                void clearNativeSpeechListeners();
+              }
+            }
+          );
+
+        setIsListening(true);
+
+        await SpeechRecognition.start({
+          language: voiceLanguage,
+          maxResults: 1,
+          partialResults: true,
+        });
+      } catch (error) {
+        console.error("NATIVE SPEECH ERROR:", error);
+        setIsListening(false);
+        await clearNativeSpeechListeners();
+        alert(
+          "Voice Input start nahi ho paaya. Android microphone permission check karo."
+        );
+      }
+
+      return;
+    }
+
+    // Normal website/browser: use Web Speech API.
     const SpeechRecognition =
       window.SpeechRecognition ||
       window.webkitSpeechRecognition;
@@ -580,6 +700,7 @@ export default function HomePage() {
       ) {
         transcript =
           event.results[i][0]?.transcript || "";
+
         if (transcript) break;
       }
 
@@ -609,9 +730,34 @@ export default function HomePage() {
     }
   }
 
-  function speakAIResponse(text: string) {
+  async function speakAIResponse(text: string) {
     if (!voiceOutput || !text.trim()) return;
 
+    // Android APK / Capacitor: native TTS.
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const { TextToSpeech } = await import(
+          "@capacitor-community/text-to-speech"
+        );
+
+        await TextToSpeech.stop();
+
+        await TextToSpeech.speak({
+          text: text.trim(),
+          lang: voiceLanguage,
+          rate: voiceSpeed,
+          pitch: 1,
+          volume: 1,
+        });
+
+        return;
+      } catch (error) {
+        console.error("NATIVE TTS ERROR:", error);
+        // Browser fallback below.
+      }
+    }
+
+    // Normal website/browser: use browser speech synthesis.
     if (
       typeof window === "undefined" ||
       !("speechSynthesis" in window)
@@ -626,19 +772,19 @@ export default function HomePage() {
 
     utterance.lang = voiceLanguage;
     utterance.rate = voiceSpeed;
-    utterance.pitch = 1;
+    utterance.pitch = voiceGender === "female" ? 1.05 : 0.95;
     utterance.volume = 1;
 
     const voices = window.speechSynthesis.getVoices();
-    const languagePrefix = voiceLanguage.toLowerCase().split("-")[0];
+    const languagePrefix =
+      voiceLanguage.toLowerCase().split("-")[0];
 
     const languageVoices = voices.filter((voice) =>
-      voice.lang.toLowerCase().startsWith(languagePrefix)
+      voice.lang
+        .toLowerCase()
+        .startsWith(languagePrefix)
     );
 
-    // Browser voices usually don't expose a reliable gender property,
-    // so we prefer common female/male voice names when available and
-    // gracefully fall back to the first voice for the selected language.
     const femaleHints = [
       "female",
       "zira",
@@ -671,12 +817,17 @@ export default function HomePage() {
       "google hindi",
     ];
 
-    const hints = voiceGender === "female" ? femaleHints : maleHints;
+    const hints =
+      voiceGender === "female"
+        ? femaleHints
+        : maleHints;
 
     const preferredVoice =
       languageVoices.find((voice) => {
         const name = voice.name.toLowerCase();
-        return hints.some((hint) => name.includes(hint));
+        return hints.some((hint) =>
+          name.includes(hint)
+        );
       }) || languageVoices[0];
 
     if (preferredVoice) {
@@ -687,6 +838,18 @@ export default function HomePage() {
   }
 
   function stopVoiceOutput() {
+    if (Capacitor.isNativePlatform()) {
+      void import(
+        "@capacitor-community/text-to-speech"
+      )
+        .then(({ TextToSpeech }) =>
+          TextToSpeech.stop()
+        )
+        .catch((error) =>
+          console.error("NATIVE TTS STOP ERROR:", error)
+        );
+    }
+
     if (
       typeof window !== "undefined" &&
       "speechSynthesis" in window
@@ -850,7 +1013,7 @@ export default function HomePage() {
       return;
     }
 
-    stopListening();
+    await stopListening();
     stopVoiceOutput();
 
     const userText = input.trim();
@@ -1013,11 +1176,31 @@ export default function HomePage() {
     return () => {
       abortControllerRef.current?.abort();
       speechRecognitionRef.current?.stop();
+      void clearNativeSpeechListeners();
+
       if (
         typeof window !== "undefined" &&
         "speechSynthesis" in window
       ) {
         window.speechSynthesis.cancel();
+      }
+
+      if (Capacitor.isNativePlatform()) {
+        void import(
+          "@capacitor-community/speech-recognition"
+        )
+          .then(({ SpeechRecognition }) =>
+            SpeechRecognition.stop()
+          )
+          .catch(() => {});
+
+        void import(
+          "@capacitor-community/text-to-speech"
+        )
+          .then(({ TextToSpeech }) =>
+            TextToSpeech.stop()
+          )
+          .catch(() => {});
       }
     };
   }, []);
